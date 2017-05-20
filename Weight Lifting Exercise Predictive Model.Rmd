@@ -1,0 +1,150 @@
+---
+title: "Weight Lifting Exercises - Predictive Model"
+author: "Vanda Dias"
+date: "20 May 2017"
+output: html_document
+---
+
+##1. Synopsis
+
+In order to predict how well people do weight lifting exercises, a tree bag predictive model was used for a dataset from accelerometers on the belt, forearm, arm and dumbell of a group of participants who perform barbell lifts according to the specification or in a few different ways.
+
+The expected out of sample error is quite high.
+
+
+##2. Introduction
+
+This document presents an analysis on how to quantify how well people do Weight Lifting Exercises.
+The analysis consists in formulating a prediction model based on a dataset from accelerometers on the belt, forearm, arm and dumbell of 6 participants who perform barbell lifts in 5 different ways:
+
+- Class A - exactly according to the specification,
+
+- Class B - throwing the elbows to the front,
+
+- Class C - lifting the dumbbell only halfway,
+
+- Class D - lowering the dumbbell only halfway, and
+
+- Class E - throwing the hips to the front.
+
+
+More information on the dataset in:http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises
+
+
+##3. Datasets and R packages
+
+The analysis was undertaken in R (R studio) and used the following packages:
+
+```{r packages, echo=TRUE, message=FALSE}
+library(plyr)
+library(dplyr)
+library(utils)
+library(stats)
+library(caret)
+```
+
+Two datasets were provided. The first one (training) to formulate the predictive model and the second one (test) to perform a prediction for a set of observations based on this model.
+
+```{r files, message=FALSE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile = "training.csv", method = "curl") #training
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              destfile = "test.csv", method = "curl") #test
+training_set <- read.csv("training.csv")
+test <- read.csv("test.csv")
+```
+
+
+##4. Data Preparation
+
+```{r dim, echo=FALSE}
+dim_training_set <- dim(training_set)
+```
+
+The training dataset has `r dim_training_set[1]` observations and `r dim_training_set[2]` variables/predictors. And the whole dataset is part of the cross validation approach:
+1. use the training set,
+2. split into training and testing sets,
+3. build a model on the training set,
+4. evaluate on the test set,
+5. repeat and average the estimated errors.
+
+The data partition was split in 70% training and 30% testing.
+
+```{r data partition}
+set.seed(1111)
+inTrain <- createDataPartition(training_set$classe, p=0.7, list = FALSE)
+training <- training_set[inTrain,]
+testing <- training_set[-inTrain,]
+dim_training <- dim(training)
+dim_testing <- dim(testing)
+```
+
+When exploring the training dataset, the dataset showed a large number of variables mainly having NA values. Where the percentage of NA is higher than 95% of the observations, the variables were disregarded.
+
+```{r cleaning NA}
+na <- data.frame(sapply(training, function(x) sum(is.na(x))))
+names(na) <- c("sum_na")
+na$names <- rownames(na)
+select_fewna <- na[na$sum_na < 0.95*dim_training[1], ]
+upd_training <- training[, rownames(select_fewna)]
+```
+
+Another cleaning step was to eliminate from the updated training dataset the variables that have small or null variance as they do not add much to the predictive model.
+
+```{r cleaning nearZeroValue}
+nzv <- nearZeroVar(upd_training, saveMetrics = TRUE)
+select_nzv <- nzv[nzv$nzv == "FALSE",]
+upd_training <- upd_training[, rownames(select_nzv)]
+```
+
+For last, the first variables (identififers) were also removed from the model regression.
+```{r cleaning identifiers}
+upd_training <- upd_training[,-c(1,2)]
+```
+
+
+##5. Model
+
+Predictive models with trees seem to be the best fitted models to use in this analysis as the preditive output consists on a 5 class factor variable.
+
+A few predictive tree models were tested and the one which seemed more accurate was the "tree bag". The "tree bag" is a model that uses aggregated bootstrap samples to recalculate predictions.
+
+```{r model, message=FALSE}
+  modelfit <- train(classe~., data=upd_training, method="treebag")
+  accuracy_insampleerror <- modelfit$results$Accuracy
+```
+
+Using all the predictors from the updated training set, the expected in sample error is `r  accuracy_insampleerror`.
+
+
+##6. Cross Validation
+
+The evaluation of the predictive model is achieved using the testing part of the training dataset, and the model's accuracy is provided by the confusion matrix between the predictors and the references.
+
+```{r crossvalidation}
+predict_testing <- predict(modelfit, newdata=testing)
+confmatrix <- confusionMatrix(predict_testing, testing$classe)
+accuracy_outofsampleerror <- confmatrix$overall[1]
+confmatrix$overall
+confmatrix$byClass
+```
+
+The testing set evaluation provides an expected out of sample error (accuracy) of `r accuracy_outofsampleerror`. The next figure presents the expected confusion matrix by classe of exercise.
+
+```{r plot confusionmatrix, fig.width=5, fig.height=4}
+confmatrix_df <- data.frame(confmatrix$table)
+plot <- ggplot(confmatrix_df)
+plot + geom_tile(aes(x=Prediction, y=Reference, fill=Freq))
+```
+
+
+##7. Conclusion and 20 sample test
+
+This predictive tree model, tree bag, provides a very good level of accuracy (different samples were used and all of them had similar results). It justifies not presenting other model analysis or combined predictor analysis.
+
+To predicted classification for the 20 sample test set is:
+```{r 20 sample test}
+predict_20test <- predict(modelfit, newdata=test)
+predict_20test
+```
+
